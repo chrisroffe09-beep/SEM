@@ -21,10 +21,10 @@ A beginner-friendly terminal-based system monitor for Ubuntu/Linux.
 git clone https://github.com/<your-username>/SSM.git
 
 2. **Install Python dependencies:**
-pip install -r requirements.txt
+pip install -r /SSM/requirements.txt
 
 3. **Install SSM globally** (requires sudo):
-bash install.sh
+bash /SSM/install.sh
 This will copy the launcher to /usr/local/bin, so you can run `ssm` from anywhere.
 
 ---
