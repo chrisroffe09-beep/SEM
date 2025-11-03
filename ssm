@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # Launcher for Sour CLI Sys Monitor
 
+# Check for python3
+if ! command -v python3 &> /dev/null
+then
+    echo "Python3 could not be found. Please install Python 3."
+    exit 1
+fi
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 python3 "$DIR/ssm_pkg/main.py"
