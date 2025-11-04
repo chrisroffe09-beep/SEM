@@ -4,6 +4,7 @@
 # Make launcher executable and copy the ssm pkg to /usr/local/bin
 chmod +x ssm
 
+# Copy the program to /usr/local/bin for launcher to work right
 sudo mkdir /usr/local/bin/ssm_pkg
 sudo touch /usr/local/bin/ssm_pkg/main.py
 sudo cp ./ssm_pkg/main.py /usr/local/bin/ssm_pkg/main.py
