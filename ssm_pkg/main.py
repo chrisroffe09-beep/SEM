@@ -5,12 +5,15 @@ import socket
 from datetime import timedelta
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, BarColumn, TextColumn
+from rich.progress import Progress, BarColumn, TextColumn, ProgressColumn
 from rich.live import Live
+from rich.panel import Panel
+from rich.layout import Layout
+from rich.text import Text
 from rich.style import Style
 
 console = Console()
-prev_net = None  # keep previous net counters to compute rates
+prev_net = None  # previous net counters
 
 def get_color(value: float) -> str:
     if value < 50:
@@ -21,7 +24,6 @@ def get_color(value: float) -> str:
         return "red"
 
 def format_bytes_per_sec(bps: float) -> str:
-    """Convert bytes/sec into KB/s, MB/s, or GB/s with auto-scaling."""
     kb = bps / 1024
     mb = kb / 1024
     gb = mb / 1024
@@ -45,7 +47,6 @@ def get_system_stats():
     uptime = str(timedelta(seconds=uptime_seconds)).split('.')[0]
     hostname = socket.gethostname()
 
-    # Calculate network speed
     if prev_net:
         sent_rate = net.bytes_sent - prev_net.bytes_sent
         recv_rate = net.bytes_recv - prev_net.bytes_recv
@@ -74,81 +75,89 @@ def get_top_processes(limit=10):
     procs = sorted(procs, key=lambda p: p['cpu_percent'], reverse=True)
     return procs[:limit]
 
-def render_ui():
-    stats = get_system_stats()
+def create_layout():
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="bars", size=9),
+        Layout(name="network", size=3),
+        Layout(name="processes")
+    )
+    return layout
 
+def render_layout(layout, stats, top_procs, progress):
     # Header
-    console.clear()
-    console.print(f"[bold underline green]Sour CLI Sys Monitor[/bold underline green] — {stats['hostname']} | Uptime: {stats['uptime']}")
-    console.print("[dim]Press Ctrl+C to exit.\n")
+    header_text = Text(f"Sour CLI Sys Monitor — {stats['hostname']} | Uptime: {stats['uptime']}", style="bold green")
+    commands_text = Text("Commands: Ctrl+C = Exit", style="bold cyan")
+    layout["header"].update(Panel(header_text + "\n" + commands_text, style="bold white"))
 
-    # CPU, Memory, Disk bars
-    cpu_color = get_color(stats["cpu"])
-    mem_color = get_color(stats["mem_used"])
-    disk_color = get_color(stats["disk_used"])
+    # Update bars
+    progress["cpu"].update(stats["cpu"])
+    progress["mem"].update(stats["mem_used"])
+    progress["disk"].update(stats["disk_used"])
+    layout["bars"].update(progress.renderable())
 
-    cpu_bar = Progress(
-        TextColumn("[bold blue]CPU"),
-        BarColumn(bar_width=None, complete_style=Style(color=cpu_color)),
-        TextColumn("{task.percentage:>3.0f}%"),
-        transient=True
-    )
-    mem_bar = Progress(
-        TextColumn("[bold magenta]Memory"),
-        BarColumn(bar_width=None, complete_style=Style(color=mem_color)),
-        TextColumn("{task.percentage:>3.0f}%"),
-        transient=True
-    )
-    disk_bar = Progress(
-        TextColumn("[bold yellow]Disk"),
-        BarColumn(bar_width=None, complete_style=Style(color=disk_color)),
-        TextColumn("{task.percentage:>3.0f}%"),
-        transient=True
-    )
-
-    cpu_bar.add_task("CPU", total=100, completed=stats["cpu"])
-    mem_bar.add_task("MEM", total=100, completed=stats["mem_used"])
-    disk_bar.add_task("DISK", total=100, completed=stats["disk_used"])
-
-    # Network table with auto-scaled speeds
-    net_table = Table(title="[bold green]Network Info", show_header=True, header_style="bold green")
-    net_table.add_column("Upload", justify="right")
-    net_table.add_column("Download", justify="right")
+    # Network Table
+    net_table = Table.grid()
+    net_table.add_column(justify="right")
+    net_table.add_column(justify="right")
+    net_table.add_row("Upload", "Download")
     net_table.add_row(
         format_bytes_per_sec(stats["net_sent_rate"]),
         format_bytes_per_sec(stats["net_recv_rate"])
     )
+    layout["network"].update(Panel(net_table, title="Network Info", style="bold green"))
 
-    # Top processes
-    proc_table = Table(title="[bold cyan]Top 10 Processes", show_header=True, header_style="bold cyan")
+    # Processes Table
+    proc_table = Table(show_header=True, header_style="bold cyan")
     proc_table.add_column("PID", justify="right")
     proc_table.add_column("Name")
     proc_table.add_column("CPU %", justify="right")
     proc_table.add_column("Memory %", justify="right")
-    for p in get_top_processes():
+    for p in top_procs:
         proc_table.add_row(
             str(p["pid"]),
-            p["name"][:20],
+            p["name"][:20] if p["name"] else "N/A",
             f"{p['cpu_percent']:.1f}",
             f"{p['memory_percent']:.1f}"
         )
-
-    console.print(cpu_bar)
-    console.print(mem_bar)
-    console.print(disk_bar)
-    console.print(net_table)
-    console.print(proc_table)
+    layout["processes"].update(proc_table)
 
 def main():
-    # Prime network counters
     global prev_net
     prev_net = psutil.net_io_counters()
-    time.sleep(1)  # wait 1 second to calculate first speed
+    time.sleep(1)  # prime network counters
 
-    with Live(refresh_per_second=1, screen=False):
+    # Initialize progress bars
+    progress = {
+        "cpu": Progress(
+            "[bold blue]CPU   ",
+            BarColumn(bar_width=None, complete_style=Style(color="green")),
+            TextColumn("{task.percentage:>3.0f}%"),
+            transient=False
+        ).add_task("CPU", total=100, completed=0),
+        "mem": Progress(
+            "[bold magenta]Memory",
+            BarColumn(bar_width=None, complete_style=Style(color="green")),
+            TextColumn("{task.percentage:>3.0f}%"),
+            transient=False
+        ).add_task("Memory", total=100, completed=0),
+        "disk": Progress(
+            "[bold yellow]Disk  ",
+            BarColumn(bar_width=None, complete_style=Style(color="green")),
+            TextColumn("{task.percentage:>3.0f}%"),
+            transient=False
+        ).add_task("Disk", total=100, completed=0)
+    }
+
+    layout = create_layout()
+
+    with Live(layout, refresh_per_second=1, screen=True):
         try:
             while True:
-                render_ui()
+                stats = get_system_stats()
+                top_procs = get_top_processes()
+                render_layout(layout, stats, top_procs, progress)
                 time.sleep(1)
         except KeyboardInterrupt:
             console.print("\n[red]Exiting Sour CLI Sys Monitor...[/red]")
