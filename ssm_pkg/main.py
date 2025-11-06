@@ -15,6 +15,7 @@ import keyboard  # pip install keyboard
 
 console = Console()
 prev_net = None
+prev_time = None
 
 # ---------------- Helper Functions ----------------
 def get_color(value: float) -> str:
@@ -39,7 +40,7 @@ def format_bytes_per_sec(bps: float) -> str:
         return f"{bps:.0f} B/s"
 
 def get_system_stats():
-    global prev_net
+    global prev_net, prev_time
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
@@ -49,13 +50,17 @@ def get_system_stats():
     uptime = str(timedelta(seconds=uptime_seconds)).split('.')[0]
     hostname = socket.gethostname()
 
+    current_time = time.time()
+    interval = current_time - prev_time if prev_time else 1
     if prev_net:
-        sent_rate = net.bytes_sent - prev_net.bytes_sent
-        recv_rate = net.bytes_recv - prev_net.bytes_recv
+        sent_rate = (net.bytes_sent - prev_net.bytes_sent) / interval
+        recv_rate = (net.bytes_recv - prev_net.bytes_recv) / interval
     else:
         sent_rate = 0
         recv_rate = 0
+
     prev_net = net
+    prev_time = current_time
 
     return {
         "cpu": cpu,
@@ -87,10 +92,10 @@ def create_layout():
         Layout(name="bottom")
     )
 
-    # Use ratios instead of fixed size for bottom row
+    # 60/40 split for bottom row
     layout["bottom"].split_row(
         Layout(name="processes", ratio=3),
-        Layout(name="disk_preview", ratio=1)
+        Layout(name="disk_preview", ratio=2)
     )
     return layout
 
@@ -158,7 +163,6 @@ def build_disk_preview():
     table = Table(expand=True, show_header=True, header_style="bold magenta")
     table.add_column("Dev")
     table.add_column("Mount")
-    table.add_column("FS")
     table.add_column("Used %", justify="right")
 
     for d in disks:
@@ -167,7 +171,6 @@ def build_disk_preview():
             table.add_row(
                 d.device,
                 d.mountpoint,
-                d.fstype,
                 f"{usage.percent:.0f}%"
             )
         except PermissionError:
@@ -214,8 +217,9 @@ def kill_process_prompt(top_procs, live):
 
 # ---------------- Main ----------------
 def main():
-    global prev_net
+    global prev_net, prev_time
     prev_net = psutil.net_io_counters()
+    prev_time = time.time()
     time.sleep(1)
 
     layout = create_layout()
