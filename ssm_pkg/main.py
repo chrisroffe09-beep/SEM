@@ -188,19 +188,37 @@ def render_layout(layout, stats, top_procs):
     layout["disk_preview"].update(build_disk_preview())
 
 # ---------------- Kill Process ----------------
-def kill_proc(pid):
+def kill_proc_tree(pid):
     try:
         proc = psutil.Process(pid)
-        proc.terminate()  # polite termination
-        try:
-            proc.wait(timeout=3)
-            console.print(f"[green]Process {pid} terminated gracefully[/green]")
-        except psutil.TimeoutExpired:
-            proc.kill()  # force kill if still alive
-            proc.wait()
-            console.print(f"[red]Process {pid} killed forcefully[/red]")
     except psutil.NoSuchProcess:
         console.print(f"[yellow]Process {pid} does not exist[/yellow]")
+        return
+
+    # Kill children first
+    children = proc.children(recursive=True)
+    for child in children:
+        try:
+            child.terminate()
+        except psutil.NoSuchProcess:
+            continue
+
+    gone, alive = psutil.wait_procs(children, timeout=3)
+    for p in alive:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            continue
+
+    # Kill parent
+    try:
+        proc.terminate()
+        proc.wait(timeout=3)
+    except psutil.TimeoutExpired:
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
     except psutil.AccessDenied:
         console.print(f"[red]Access denied to kill process {pid}[/red]")
 
@@ -220,7 +238,8 @@ def kill_process_prompt(top_procs, live):
             console.print("[green]Cancelled[/green]")
         else:
             proc_info = top_procs[choice - 1]
-            kill_proc(proc_info['pid'])
+            kill_proc_tree(proc_info['pid'])
+            console.print(f"[green]Process tree {proc_info['name']} (PID {proc_info['pid']}) terminated[/green]")
     except (ValueError, IndexError):
         console.print("[red]Invalid selection[/red]")
     finally:
