@@ -242,7 +242,7 @@ def kill_process_prompt(top_procs, live):
 
     try:
         console.print()
-        choice = int(console.input("[bold white]Enter process number to kill (0 to cancel): [/bold white]"))
+        choice = int(console.input("[bold white]Enter process number to kill (0 to cancel):[/bold white]"))
         if choice == 0:
             console.print("[yellow]Canceled.[/yellow]")
         else:
