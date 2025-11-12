@@ -305,6 +305,10 @@ def kill_process_prompt(top_procs, live):
 
 # ---------------- Speedtest Runner ----------------
 def run_speedtest_background():
+    """
+    Starts speedtest-cli in a background thread, captures live output line by line,
+    and updates the speed_samples for Ookla-style graph and result text.
+    """
     global speedtest_running, speedtest_result_text, speedtest_error, speed_samples
     if speedtest_running:
         return
@@ -317,9 +321,14 @@ def run_speedtest_background():
         with speed_samples_lock:
             speed_samples = []
 
-        cmd = ["speedtest-cli", "--simple"]
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            proc = subprocess.Popen(
+                ["speedtest-cli", "--simple"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1  # line buffered
+            )
         except FileNotFoundError:
             speedtest_error = "speedtest-cli not found. Install it (pip install speedtest-cli or apt install speedtest-cli)."
             speedtest_running = False
@@ -333,10 +342,17 @@ def run_speedtest_background():
         last_time = time.time()
 
         try:
-            while proc.poll() is None:
+            # read stdout line by line
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    with speed_samples_lock:
+                        speedtest_result_text += line + "\n"
+
+                # update graph sample based on network delta
                 now = time.time()
                 cur = psutil.net_io_counters()
-                dt = now - last_time if (now - last_time) > 0 else 1e-6
+                dt = max(now - last_time, 1e-6)
                 down_bps = (cur.bytes_recv - last.bytes_recv) / dt
                 up_bps = (cur.bytes_sent - last.bytes_sent) / dt
                 sample_mbps = max(down_bps, up_bps) * 8.0 / 1_000_000.0
@@ -346,16 +362,10 @@ def run_speedtest_background():
                         speed_samples = speed_samples[-200:]
                 last = cur
                 last_time = now
-                time.sleep(0.18)
-        except Exception:
-            pass
+        except Exception as e:
+            speedtest_error = f"Speedtest error: {e}"
 
-        out, err = proc.communicate(timeout=10)
-        if out:
-            speedtest_result_text = out.strip()
-        if err:
-            speedtest_error = (err.strip() + (f"\n{speedtest_error}" if speedtest_error else "")) if err.strip() else speedtest_error
-
+        proc.wait(timeout=10)
         speedtest_running = False
 
     t = threading.Thread(target=_worker, daemon=True)
